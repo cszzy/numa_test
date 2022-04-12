@@ -11,9 +11,9 @@
 #include <mutex>
 
 #define SIZE (100UL << 20) // 100MB
-#define ITERATIONS 8
+#define ITERATIONS 16
 #define IO_SIZE 64
-#define THREADS 1
+#define THREADS 8
 #define CACHELINE_SIZE 64
 
 bool write_test = false;
@@ -91,28 +91,28 @@ int main(int argc, char **argv) {
     void *p_ptr = NULL;
     int numanodes = numa_max_node() + 1;
     printf("numa node nums : %d\n", numanodes);
-    
-    if(pmem_test) {
-        p_ptr = pmem_map_file(work_space, SIZE, PMEM_FILE_CREATE, 0666, NULL, NULL);
-        if (p_ptr == NULL) {
-            printf("ERROR: Failed to map file %s\n", work_space);
-            return 1;
-        }
-    } else {
-        p_ptr = numa_alloc_onnode(SIZE, remote_test ? 1 :0);
-        if (p_ptr == NULL) {
-			printf("ERROR: failed to allocate memory\n");
-			return 1;
-		}
-    }
-
-    void *v_ptr;
-    posix_memalign(&v_ptr, CACHELINE_SIZE, IO_SIZE);
 
     printf("WorkSpace:%s, Testing %s Latency\n", work_space, write_test ? "Write" : "Read");
     printf("IO Size: %d\n", IO_SIZE);
 
     for(int k = 0; k < ITERATIONS; ++k) {
+        if(pmem_test) {
+            p_ptr = pmem_map_file(work_space, SIZE, PMEM_FILE_CREATE, 0666, NULL, NULL);
+            if (p_ptr == NULL) {
+                printf("ERROR: Failed to map file %s\n", work_space);
+                return 1;
+            }
+        } else {
+            p_ptr = numa_alloc_onnode(SIZE, remote_test ? 1 :0);
+            if (p_ptr == NULL) {
+                printf("ERROR: failed to allocate memory\n");
+                return 1;
+            }
+        }
+
+        void *v_ptr;
+        posix_memalign(&v_ptr, CACHELINE_SIZE, IO_SIZE);
+
         p_data = (volatile uint64_t *)p_ptr;
         v_data = (volatile uint64_t *)v_ptr;
 
@@ -135,6 +135,13 @@ int main(int argc, char **argv) {
         for(auto t : th_arr) {
             t->join();
             delete t;
+        }
+
+        free(v_ptr);
+        if(pmem_test) {
+            pmem_unmap(p_ptr, SIZE);
+        } else {
+            numa_free(p_ptr, SIZE);
         }
     }
 
